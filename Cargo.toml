@@ -1,0 +1,13 @@
+[package]
+name = "adaptive_filter"
+version = "0.1.0"
+authors = ["Maiko Mueller <maiko.mueller@web.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rayon = {git = "https://github.com/ma1ko/rayon"}
+criterion = {git = "https://github.com/ma1ko/criterion.rs"}
+rand = "*"
+adaptive_algorithms = {git="https://github.com/ma1ko/adaptive_algorithms"}

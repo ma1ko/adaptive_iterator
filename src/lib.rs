@@ -15,24 +15,24 @@ pub fn main() {
         .unwrap();
 
     let mut a: Vec<u32> = (0..50_000_000).into_iter().collect();
-    let r = pool.install(|| filter(&mut a, &|a| a % 2 == 0));
+    let r = pool.install(|| filter(&mut a, &|&&a| a % 2 == 0));
     assert_eq!(r.len(), 25_000_000);
     assert!(r.iter().all(|&&x| x % 2 == 0));
 }
 
 struct Filter<'a, T: Sync + Send, P: Send + Sync> 
-where P: Fn(&T) -> bool {
+where P: Fn(&&T) -> bool {
     data: &'a [T],
     result: Vec<&'a T>,
     predicate: &'a P,
 }
 
 pub fn filter<'a, T: Sync + Send, P: Send + Sync + 'a>(
-    input: &'a Vec<T>,
+    input: &'a [T],
     predicate: &'a P,
 ) -> Vec<&'a T>
 where
-    P: Fn(&T) -> bool,
+    P: Fn(&&T) -> bool,
 {
     let mut x = Filter {
         data: input,
@@ -45,7 +45,7 @@ where
 
 impl<'a, T: Send + Sync, P: Send + Sync> Task for Filter<'a, T, P>
 where
-    P: Fn(&T) -> bool,
+    P: Fn(&&T) -> bool,
 {
     fn step(&mut self) {
         let cut = 1024.min(self.data.len());
@@ -53,7 +53,7 @@ where
 
         // let result = left.iter().filter(self.predicate).collect::<Vec<&T>>();
         for e in left {
-            if (self.predicate)(e) {
+            if (self.predicate)(&e) {
                 self.result.push(e);
             }
         }

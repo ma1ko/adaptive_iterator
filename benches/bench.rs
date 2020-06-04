@@ -168,6 +168,18 @@ fn bench(c: &mut Criterion) {
             }),
         };
         test.push(t);
+
+        let t = TestConfig {
+            len: data.len(),
+            num_cpus: *i,
+            backoff: None,
+            test: Box::new(RayonFilter{
+                data,
+                result: Vec::new(),
+                predicate: &predicate,
+            }),
+        };
+        test.push(t);
     }
     let r = LoopFilter {
         data,

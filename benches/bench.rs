@@ -41,7 +41,7 @@ impl<'a, T: Sync + Send> Benchable<'a, ()> for IteratorFilter<'a, T> {
         self.result = self.data.iter().filter(self.predicate).collect::<Vec<&T>>();
     }
     fn name(&self) -> &'static str {
-        "Regalur Iterator"
+        "Regalur Filter"
     }
     fn get_result(&self) -> () {
         unimplemented!();
@@ -64,7 +64,7 @@ impl<'a, T: Sync + Send> Benchable<'a, ()> for AdaptiveFilter<'a, T> {
             .collect::<Vec<&T>>();
     }
     fn name(&self) -> &'static str {
-        "Adaptive Filter"
+        "rayon-adaptive filter"
     }
     fn get_result(&self) -> () {
         unimplemented!();
@@ -118,7 +118,7 @@ where
         }
     }
     fn name(&self) -> &'static str {
-        "Regular Loop"
+        "For Loop"
     }
     fn get_result(&self) {
         unimplemented!();
@@ -130,7 +130,7 @@ where
 
 fn bench(c: &mut Criterion) {
     let data: &Vec<u32> = &(0..5_000_000).into_iter().collect();
-    let mut group = c.benchmark_group("NearestNeighbor");
+    let mut group = c.benchmark_group("Filter");
     let predicate: &(dyn Fn(&&u32) -> bool + Sync + Send) = &|&&x| x % 2 == 0;
     group.warm_up_time(std::time::Duration::new(1, 0));
     group.measurement_time(std::time::Duration::new(3, 0));

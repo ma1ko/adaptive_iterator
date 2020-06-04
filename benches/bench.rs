@@ -23,12 +23,27 @@ fn filter_collect_adaptive(c: &mut Criterion) {
     c.bench_function("my adaptive filter_collect", |b| {
         b.iter(|| {
             pool.install(|| {
-                let y = filter(&x, &|x| x % 2 == 0);
+                let y: Vec<&usize> = filter(&x, &|x| x % 2 == 0);
                 assert!(y.len() == x.len() / 2);
                 y
             });
         }) 
     });
+  c.bench_function("loop", |b| {
+        b.iter(|| {
+            pool.install(|| {
+                let mut v : Vec<&usize> = Vec::new();
+                for e in x.iter(){
+                    if e % 2 == 0 {
+                        v.push(&e);
+                    }
+                }
+                assert!(v.len() == x.len() / 2);
+                v
+            });
+        }) 
+    });
+
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(1)

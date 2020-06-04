@@ -9,7 +9,7 @@ pub fn test() {
 }
 pub fn main() {
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
+        .num_threads(2)
         .steal_callback(|x| adaptive_algorithms::steal::steal(6, x))
         .build()
         .unwrap();
@@ -52,17 +52,14 @@ where
         let left = cut_off_left(&mut self.data, cut);
 
         // let result = left.iter().filter(self.predicate).collect::<Vec<&T>>();
-        // let mut result = std::mem::replace(&mut self.result, vec![]);
         for e in left {
             if (self.predicate)(e) {
                 self.result.push(e);
             }
         }
-        // std::mem::replace(&mut self.result, result);
     }
     fn can_split(&self) -> bool {
-        true
-        // self.data.len() > 1024
+        self.data.len() > 1024
     }
     fn is_finished(&self) -> bool {
         self.data.is_empty()

@@ -36,7 +36,7 @@ pub trait Task: Send + Sync {
         // // run the parent task
 
         // // let mut other: Self = self.split();
-        let runner = |left: &mut Self, mut right: &mut Self| {
+        let runner = |left: &mut Self, right: &mut Self| {
             if steal_counter < 2 {
                 rayon::join(
                     || {
@@ -45,13 +45,13 @@ pub trait Task: Send + Sync {
                     },
                     || right.run(),
                 );
-            // self.fuse(other);
+                left.fuse(right);
             } else {
                 rayon::join(
                     || left.split_run(steal_counter / 2),
                     || right.split_run(steal_counter / 2),
                 );
-                left.fuse(&mut right);
+                left.fuse(right);
             }
         };
         self.split(runner);
@@ -68,5 +68,5 @@ pub trait Task: Send + Sync {
     fn can_split(&self) -> bool;
     fn is_finished(&self) -> bool;
     fn split(&mut self, runner: impl Fn(&mut Self, &mut Self));
-    fn fuse(&mut self, _other: &mut Self) { }
+    fn fuse(&mut self, _other: &mut Self) {}
 }

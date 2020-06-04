@@ -15,7 +15,7 @@ fn filter_collect_adaptive(c: &mut Criterion) {
     let size = 2usize.pow(24);
     let x = (0..size).collect::<Vec<usize>>();
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
+        .num_threads(4)
         .steal_callback(|x| adaptive_algorithms::steal::steal(20, x))
         .build()
         .unwrap();
@@ -27,23 +27,20 @@ fn filter_collect_adaptive(c: &mut Criterion) {
                 assert!(y.len() == x.len() / 2);
                 y
             });
-        }) 
+        })
     });
-  c.bench_function("loop", |b| {
+    c.bench_function("loop", |b| {
         b.iter(|| {
-            pool.install(|| {
-                let mut v : Vec<&usize> = Vec::new();
-                for e in x.iter(){
-                    if e % 2 == 0 {
-                        v.push(&e);
-                    }
+            let mut v: Vec<&usize> = Vec::new();
+            for e in x.iter() {
+                if e % 2 == 0 {
+                    v.push(&e);
                 }
-                assert!(v.len() == x.len() / 2);
-                v
-            });
-        }) 
+            }
+            assert!(v.len() == x.len() / 2);
+            v
+        })
     });
-
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(1)

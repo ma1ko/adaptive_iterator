@@ -202,4 +202,5 @@ fn bench(c: &mut Criterion) {
 
     // group.finish();
 }
-
+criterion_group!(benches, bench);
+criterion_main!(benches);

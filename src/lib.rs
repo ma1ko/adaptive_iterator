@@ -1,7 +1,5 @@
 use rayon;
-pub mod task;
-
-use task::Task;
+use adaptive_algorithms::task::SimpleTask;
 
 #[test]
 pub fn test() {
@@ -43,7 +41,7 @@ where
     return x.result;
 }
 
-impl<'a, T: Send + Sync, P: Send + Sync> Task for Filter<'a, T, P>
+impl<'a, T: Send + Sync, P: Send + Sync> SimpleTask for Filter<'a, T, P>
 where
     P: Fn(&&T) -> bool,
 {

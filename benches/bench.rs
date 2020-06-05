@@ -30,6 +30,9 @@ impl<'a, T: Sync + Send, R> Benchable<'a, R> for RayonFilter<'a, T> {
     fn get_result(&self) -> R {
         unimplemented!();
     }
+    fn reset(&mut self) {
+        self.result.clear();
+    }
 }
 pub struct IteratorFilter<'a, T: Sync + Send> {
     data: &'a [T],
@@ -127,11 +130,22 @@ where
         self.result.clear();
     }
 }
+// can also be used
+fn is_prime(n: u32) -> bool {
+    for a in 2..(n as f64).sqrt() as u32 {
+        if n % a == 0 {
+            return false;
+        }
+    }
+    true
+}
 
+type Predicate = (dyn Fn(&&u32) -> bool + Sync + Send);
 fn bench(c: &mut Criterion) {
-    let data: &Vec<u32> = &(0..5_000_000).into_iter().collect();
+    let data: &Vec<u32> = &(0..1_000_000).into_iter().collect();
     let mut group = c.benchmark_group("Filter");
-    let predicate: &(dyn Fn(&&u32) -> bool + Sync + Send) = &|&&x| x % 2 == 0;
+    // let predicate: &Predicate = &|&&x| x % 2 == 0;
+    let predicate: &Predicate = &|&&x| is_prime(x);
     group.warm_up_time(std::time::Duration::new(1, 0));
     group.measurement_time(std::time::Duration::new(3, 0));
     group.sample_size(10);

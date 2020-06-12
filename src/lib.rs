@@ -1,4 +1,3 @@
-use rayon;
 use adaptive_algorithms::task::SimpleTask;
 
 #[test]
@@ -6,20 +5,55 @@ pub fn test() {
     main()
 }
 pub fn main() {
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .steal_callback(|x| adaptive_algorithms::steal::steal(6, x))
-        .build()
-        .unwrap();
+    // let pool = adaptive_algorithms::rayon::get_custom_thread_pool(1, 8);
 
-    let mut a: Vec<u32> = (0..50_000_000).into_iter().collect();
-    let r = pool.install(|| filter(&mut a, &|&&a| a % 2 == 0));
-    assert_eq!(r.len(), 25_000_000);
-    assert!(r.iter().all(|&&x| x % 2 == 0));
+    let a: Vec<u32> = (0..100_000_000).into_iter().collect();
+
+    type Predicate = (dyn Fn(&&u32) -> bool + Sync + Send);
+    let predicate: &Predicate = &|&&x| x % 2 == 0;
+    #[cfg(not(feature = "logs"))]
+    {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        use rayon::prelude::*;
+        // result = pool.install(|| filter(&mut a, &|&&a| a % 2 == 0));
+        let result = pool.install(|| a.par_iter().filter(|&&x| x % 2 == 0).collect::<Vec<&u32>>());
+    }
+
+    #[cfg(feature = "logs")]
+    {
+        let start = std::time::Instant::now();
+
+        let result: Vec<&u32> = a.iter().filter(predicate).collect::<Vec<&u32>>();
+        assert_eq!(result.len(), 50_000_000);
+        assert!(result.iter().all(|&&x| x % 2 == 0));
+
+        println!("Sequential Runtime: {} ms", start.elapsed().as_millis());
+
+        use rayon_logs::prelude::*;
+        let pool = rayon_logs::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        // let (r, log) = pool.logging_install(|| filter(&mut a, &|&&a| a % 2 == 0));
+        let start = std::time::Instant::now();
+        let (result, log) =
+            pool.logging_install(|| a.par_iter().filter(predicate).collect::<Vec<&u32>>());
+
+        // let (r, log) = pool.logging_install(|| a.par_iter().filter(&|&&a| a % 2 == 0).collect::<Vec<&u32>>());
+        println!("Rayon Runtime: {} ms", start.elapsed().as_millis());
+        log.save_svg("log.svg").unwrap();
+        assert_eq!(result.len(), 50_000_000);
+        assert!(result.iter().all(|&&x| x % 2 == 0));
+    }
 }
 
-struct Filter<'a, T: Sync + Send, P: Send + Sync> 
-where P: Fn(&&T) -> bool {
+struct Filter<'a, T: Sync + Send, P: Send + Sync>
+where
+    P: Fn(&&T) -> bool,
+{
     data: &'a [T],
     result: Vec<&'a T>,
     predicate: &'a P,
@@ -62,7 +96,7 @@ where
     fn is_finished(&self) -> bool {
         self.data.is_empty()
     }
-    fn split(&mut self, runner: impl Fn(&mut Self, &mut Self)) {
+    fn split(&mut self, mut runner: impl FnMut(&mut Vec<&mut Self>), steal_counter: usize) {
         let mid = self.data.len() / 2;
         let right = cut_off_right(&mut self.data, mid);
         let mut other = Filter {
@@ -70,7 +104,7 @@ where
             result: Vec::new(),
             predicate: self.predicate,
         };
-        runner(self, &mut other);
+        runner(&mut vec![self, &mut other]);
     }
     fn fuse(&mut self, other: &mut Self) {
         self.result.append(&mut other.result);

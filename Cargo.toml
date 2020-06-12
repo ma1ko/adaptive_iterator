@@ -12,8 +12,11 @@ criterion = {git = "https://github.com/ma1ko/criterion.rs"}
 rand = "*"
 adaptive_algorithms = {git="https://github.com/ma1ko/adaptive_algorithms"}
 rayon_adaptive = {git="https://github.com/ma1ko/rayon-adaptive"}
+rayon_logs = {git="https://github.com/ma1ko/rayon-logs"}
 num_cpus = "*"
 
+[features]
+logs = ["adaptive_algorithms/logs"]
 
 [[bench]]
 name = "bench"

@@ -142,15 +142,15 @@ fn is_prime(n: u32) -> bool {
 
 type Predicate = (dyn Fn(&&u32) -> bool + Sync + Send);
 fn bench(c: &mut Criterion) {
-    let data: &Vec<u32> = &(0..1_000_000).into_iter().collect();
+    let data: &Vec<u32> = &(0..10_000_000).into_iter().collect();
     let mut group = c.benchmark_group("Filter");
-    // let predicate: &Predicate = &|&&x| x % 2 == 0;
-    let predicate: &Predicate = &|&&x| is_prime(x);
+    let predicate: &Predicate = &|&&x| x % 2 == 0;
+    // let predicate: &Predicate = &|&&x| is_prime(x);
     group.warm_up_time(std::time::Duration::new(1, 0));
     group.measurement_time(std::time::Duration::new(3, 0));
     group.sample_size(10);
 
-    let cpus: Vec<usize> = vec![1, 2, 3, 4, 8, 16, 24, 32]
+    let cpus: Vec<usize> = vec![1 /*, 2, 3, 4, 8, 16, 24, 32*/]
         .iter()
         .filter(|&&i| i <= num_cpus::get())
         .cloned()

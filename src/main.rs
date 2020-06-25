@@ -1,3 +1,3 @@
 fn main() {
-    adaptive_filter::main()
+    adaptive_iterator::main()
 }

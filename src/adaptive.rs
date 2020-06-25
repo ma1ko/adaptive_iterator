@@ -36,7 +36,7 @@ where
         let id = self.reducer.identity;
         let mut id = id();
         std::mem::swap(&mut id, &mut self.output);
-        self.output = self.producer.partial_fold(id, self.reducer.op, 1024);
+        self.output = self.producer.partial_fold(id, self.reducer.op, 4096);
     }
     fn fuse(&mut self, other: &mut Self) {
         // this is ugly, but I don't really know how do to that otherwise without copy
@@ -47,9 +47,12 @@ where
         self.output = (self.reducer.op)(id, other_id);
     }
     fn can_split(&self) -> bool {
-        self.producer.size_hint().0 > 4096
+        // println!("Hint: {}", self.producer.size_hint().0);
+        // self.producer.size_hint().0 > 4096
+        true
     }
     fn split(&mut self, mut runner: impl FnMut(&mut Vec<&mut Self>), _steal_counter: usize) {
+        println!("Split");
         let other_producer =
             replace_with::replace_with_or_abort_and_return(&mut self.producer, |p| p.divide());
         let id = (self.reducer.identity)();
@@ -61,7 +64,29 @@ where
         runner(&mut vec![self, &mut other]);
     }
 }
-
+// impl<P, I> From<P> for Adaptive<I>
+// where
+//     I: ParallelIterator + Sized,
+//     P: rayon_try_fold::prelude::ParallelIterator<
+//         Item = I::Item, Controlled = I::Controlled, Enumerable = I::Enumerable> + Sized
+// {
+//     // type Controlled = I::Controlled;
+//     // type Enumerable = I::Enumerable;
+//     // type Item = I::Item;
+//     fn from(item: P) -> Self {
+//         // Number { value: item }
+//         unimplemented!()
+//     }
+// }
+pub fn mk_adaptive<P>(iterator: P) -> Adaptive<P>
+where 
+    P: rayon_try_fold::prelude::ParallelIterator
+                {
+            let x = Adaptive {
+                base: iterator
+            };
+            x
+    }
 
 pub(crate) trait AdaptiveProducer: Producer {
     fn completed(&self) -> bool;

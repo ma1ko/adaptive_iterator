@@ -5,11 +5,38 @@ pub mod adaptive;
 pub mod blocked;
 pub mod reduce;
 
+use rayon_try_fold::prelude::*;
+
 #[test]
-pub fn test() {
-    main()
+pub fn try_adapt() {
+    let pool = adaptive_algorithms::rayon::get_custom_thread_pool(4, 10);
+    pool.install(|| {
+        let s = (0..100_000_000u64)
+            .into_par_iter()
+            .map(|e| e % 2)
+            .adaptive()
+            .reduce(|| 0, |a, b| a + b);
+        assert_eq!(s, 50_000_000);
+    });
+    // log.save_svg("adapt.svg")
+    // .expect("failed saving execution trace");
 }
+#[test]
+pub fn try_other_adapt() {
+    let pool = adaptive_algorithms::rayon::get_custom_thread_pool(4, 10);
+    pool.install(|| {
+        let s = (0..100_000_000u64).into_par_iter().map(|e| e % 2);
+        let s = adaptive::mk_adaptive(s).reduce(|| 0, |a, b| a + b);
+        assert_eq!(s, 50_000_000);
+    });
+    // log.save_svg("adapt.svg")
+    // .expect("failed saving execution trace");
+}
+
 pub fn main() {
+    // try_other_adapt()
+}
+pub fn test() {
     let a: Vec<u32> = (0..100_000_000).into_iter().collect();
 
     type Predicate = (dyn Fn(&&u32) -> bool + Sync + Send);

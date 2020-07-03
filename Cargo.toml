@@ -11,9 +11,11 @@ rayon = {git = "https://github.com/ma1ko/rayon"}
 criterion = {git = "https://github.com/ma1ko/criterion.rs"}
 rand = "*"
 adaptive_algorithms = {git="https://github.com/ma1ko/adaptive_algorithms"}
+rayon_adaptive = {git="https://github.com/ma1ko/rayon-adaptive"}
 rayon_try_fold = {git="https://github.com/ma1ko/rayon_try_fold"}
 rayon_logs = {git="https://github.com/ma1ko/rayon-logs"}
 num_cpus = "*"
+num = "*"
 replace_with = "*"
 
 [features]

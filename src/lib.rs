@@ -1,4 +1,4 @@
-use adaptive_algorithms::task::SimpleTask;
+use adaptive_algorithms::task::Task;
 use std::collections::LinkedList;
 
 pub mod adaptive;
@@ -92,7 +92,7 @@ where
     // return x.result;
 }
 
-impl<'a, T: Send + Sync, P: Send + Sync> SimpleTask for Filter<'a, T, P>
+impl<'a, T: Send + Sync, P: Send + Sync> Task for Filter<'a, T, P>
 where
     P: Fn(&&T) -> bool,
 {

@@ -6,7 +6,7 @@ use std::mem;
 // use rayon_try_fold::Blocked;
 
 use crate::blocked::Blocked;
-use adaptive_algorithms::task::SimpleTask;
+use adaptive_algorithms::task::Task;
 
 struct Reduce<'f, T, OP, ID, P>
 where
@@ -20,7 +20,7 @@ where
     output: T,
 }
 
-impl<'f, T, OP, ID, P> SimpleTask for Reduce<'f, T, OP, ID, P>
+impl<'f, T, OP, ID, P> Task for Reduce<'f, T, OP, ID, P>
 where
     T: Send,
     OP: Fn(T, T) -> T + Sync + Send,
@@ -47,12 +47,12 @@ where
         self.output = (self.reducer.op)(id, other_id);
     }
     fn can_split(&self) -> bool {
-        // println!("Hint: {}", self.producer.size_hint().0);
+        // println!("Hint: {:?}", self.producer.size_hint());
         // self.producer.size_hint().0 > 4096
         true
     }
     fn split(&mut self, mut runner: impl FnMut(&mut Vec<&mut Self>), _steal_counter: usize) {
-        println!("Split");
+        // println!("Split");
         let other_producer =
             replace_with::replace_with_or_abort_and_return(&mut self.producer, |p| p.divide());
         let id = (self.reducer.identity)();
@@ -64,6 +64,7 @@ where
         runner(&mut vec![self, &mut other]);
     }
 }
+// That might make it simple to convert to my Adaptive algorithm
 // impl<P, I> From<P> for Adaptive<I>
 // where
 //     I: ParallelIterator + Sized,
@@ -78,15 +79,13 @@ where
 //         unimplemented!()
 //     }
 // }
+// that works but makes it rather annoying to use
 pub fn mk_adaptive<P>(iterator: P) -> Adaptive<P>
-where 
-    P: rayon_try_fold::prelude::ParallelIterator
-                {
-            let x = Adaptive {
-                base: iterator
-            };
-            x
-    }
+where
+    P: rayon_try_fold::prelude::ParallelIterator,
+{
+    Adaptive { base: iterator }
+}
 
 pub(crate) trait AdaptiveProducer: Producer {
     fn completed(&self) -> bool;
@@ -96,12 +95,14 @@ pub(crate) trait AdaptiveProducer: Producer {
         F: Fn(B, Self::Item) -> B;
 }
 
+/*
 pub(crate) fn block_sizes() -> impl Iterator<Item = usize> {
     // TODO: cap
     std::iter::successors(Some(1), |old: &usize| {
         old.checked_shl(1).or(Some(std::usize::MAX))
     })
 }
+*/
 
 pub struct Adaptive<I> {
     pub(crate) base: I,
@@ -134,7 +135,7 @@ where
 fn adaptive_scheduler<'f, T, OP, ID, P>(
     reducer: &ReduceCallback<'f, OP, ID>,
     producer: P,
-    output: T,
+    output: T, // What's that for?
 ) -> T
 where
     T: Send,
@@ -142,6 +143,7 @@ where
     ID: Fn() -> T + Send + Sync,
     P: AdaptiveProducer<Item = T>,
 {
+    // println!("Running");
     let mut r = Reduce {
         reducer,
         producer,
@@ -150,67 +152,6 @@ where
     r.run();
 
     r.output
-
-    /*
-    let (sender, receiver) = small_channel();
-    let (left_result, maybe_right_result): (T, Option<T>) = rayon::join_context(
-        |_| match block_sizes()
-            .take_while(|_| !sender.receiver_is_waiting())
-            .try_fold((producer, output), |(mut producer, output), s| {
-                //TODO: is this the right way to test for the end ?
-                if producer.completed() {
-                    Err(output)
-                } else {
-                    let new_output = producer.partial_fold(output, reducer.op, s);
-                    Ok((producer, new_output))
-                }
-            }) {
-            Ok((remaining_producer, output)) => {
-                // we are being stolen. Let's give something if what is left is big enough.
-                if remaining_producer.should_be_divided() {
-                    let (my_half, his_half) = remaining_producer.divide();
-                    sender.send(Some(his_half));
-                    adaptive_scheduler(reducer, my_half, output)
-                } else {
-                    sender.send(None);
-                    remaining_producer.fold(output, reducer.op)
-                }
-            }
-            Err(output) => {
-                // all is completed, cancel stealer's task.
-                sender.send(None);
-                output
-            }
-        },
-        |c| {
-            if c.migrated() {
-                let stolen_task = {
-                    #[cfg(feature = "logs")]
-                    {
-                        use rayon_logs::subgraph;
-                        subgraph("En attendant", 0, || {
-                            receiver.recv().expect("receiving adaptive producer failed")
-                        })
-                    }
-                    #[cfg(not(feature = "logs"))]
-                    {
-                        receiver.recv().expect("receiving adaptive producer failed")
-                    }
-                };
-                stolen_task
-                    .map(|producer| adaptive_scheduler(reducer, producer, (reducer.identity)()))
-            } else {
-                None
-            }
-        },
-    );
-
-    if let Some(right_result) = maybe_right_result {
-        (reducer.op)(left_result, right_result)
-    } else {
-        left_result
-    }
-    */
 }
 
 impl<I> ParallelIterator for Adaptive<I>
@@ -249,6 +190,8 @@ where
     }
 }
 
+// TODO: do I need that?
+/*
 struct Worker<'f, S, C, D, W, SD> {
     state: S,
     completed: &'f C,
@@ -263,6 +206,7 @@ where
     C: Fn(&S) -> bool + Sync,
 {
     type Item = ();
+            x
     fn next(&mut self) -> Option<Self::Item> {
         None
     }
@@ -368,3 +312,4 @@ where
     };
     adaptive_scheduler(&reducer, worker, ());
 }
+*/

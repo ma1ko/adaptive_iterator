@@ -31,15 +31,15 @@ where
     P: AdaptiveProducer<Item = T>,
 {
     fn is_finished(&self) -> bool {
-        // TODO: This is not really correct, maybe use upper bound?
-        // self.producer.size_hint().0 == 0;
         self.producer.completed()
     }
     fn step(&mut self) {
-        let id = self.reducer.identity;
-        let mut id = id();
-        std::mem::swap(&mut id, &mut self.output);
-        self.output = self.producer.partial_fold(id, self.reducer.op, 4096);
+        let mut value = (self.reducer.identity)();
+        std::mem::swap(&mut value, &mut self.output);
+        let block = replace_with::replace_with_or_abort_and_return(&mut self.producer, |p| {
+            p.divide_at(4096)
+        });
+        self.output = block.fold(value, self.reducer.op);
     }
     fn fuse(&mut self, other: &mut Self) {
         // this is ugly, but I don't really know how do to that otherwise without copy

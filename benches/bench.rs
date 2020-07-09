@@ -98,8 +98,8 @@ impl<'a> Benchable<'a, usize> for MyNewAdaptive<'a, usize> {
         use rayon_try_fold::prelude::*;
         let data = self.data.clone();
         let iter = data.into_par_iter().filter(self.predicate).adaptive();
-        mk_adaptive(iter).reduce(|| 0, |a, b| a + b);
-        None
+        let sum = mk_adaptive(iter).reduce(|| 0, |a, b| a + b);
+        Some(sum)
     }
     fn name(&self) -> &'static str {
         "New with adaptive fold"
@@ -136,7 +136,7 @@ fn is_prime(n: usize) -> bool {
 
 type Predicate = (dyn Fn(&usize) -> bool + Sync + Send);
 fn bench(c: &mut Criterion) {
-    let data: std::ops::Range<usize> = 0..50_000_000;
+    let data: std::ops::Range<usize> = 0..2usize.pow(24);
     let len = data.end;
     let mut group = c.benchmark_group("Filter");
     let predicate: &Predicate = criterion::black_box(&|&x| x % 2 == 0);
@@ -155,15 +155,11 @@ fn bench(c: &mut Criterion) {
     let predicate = &predicate;
     for i in &cpus {
         for s in vec![0, 6, 8] {
-            let t = TestConfig::new(
-                len,
-                *i,
-                Some(s),
-                MyNewAdaptive {
-                    data: data.clone(),
-                    predicate,
-                },
-            );
+            let f = MyNewAdaptive {
+                data: data.clone(),
+                predicate,
+            };
+            let t = TestConfig::new(len, *i, Some(s), f);
             test.push(t);
         }
         let f = AdaptiveFilter {
@@ -197,9 +193,13 @@ fn bench(c: &mut Criterion) {
 
     let t = TestConfig::new(len, 1, None, r);
     test.push(t);
+    let mut r = IteratorFilter {
+        data: data.clone(),
+        predicate,
+    };
 
     // r.start();
-    let mut t = Tester::new(test, group, None);
+    let mut t = Tester::new(test, group, r.start());
     t.run();
 
     // group.finish();

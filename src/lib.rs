@@ -1,150 +1,318 @@
-use adaptive_algorithms::task::Task;
-use std::collections::LinkedList;
+//! Adaptive reductions
 
-pub mod adaptive;
-pub mod blocked;
-pub mod reduce;
+mod blocked;
 
 use rayon_try_fold::prelude::*;
+use std::mem;
+// use rayon_try_fold::small_channel::small_channel;
+// use rayon_try_fold::Blocked;
 
-#[test]
-pub fn try_adapt() {
-    let pool = adaptive_algorithms::rayon::get_custom_thread_pool(4, 10);
-    pool.install(|| {
-        let s = (0..100_000_000u64)
-            .into_par_iter()
-            .map(|e| e % 2)
-            .adaptive()
-            .reduce(|| 0, |a, b| a + b);
-        assert_eq!(s, 50_000_000);
-    });
-    // log.save_svg("adapt.svg")
-    // .expect("failed saving execution trace");
-}
-#[test]
-pub fn try_other_adapt() {
-    let pool = adaptive_algorithms::rayon::get_custom_thread_pool(4, 10);
-    pool.install(|| {
-        let s = (0..100_000_000u64).into_par_iter().map(|e| e % 2);
-        let s = adaptive::mk_adaptive(s).reduce(|| 0, |a, b| a + b);
-        assert_eq!(s, 50_000_000);
-    });
-    // log.save_svg("adapt.svg")
-    // .expect("failed saving execution trace");
+use crate::blocked::Blocked;
+use adaptive_algorithms::task::Task;
+
+pub fn main() {}
+struct Reduce<'f, T, OP, ID, P>
+where
+    T: Send,
+    OP: Fn(T, T) -> T + Sync + Send,
+    ID: Fn() -> T + Send + Sync,
+    P: AdaptiveProducer<Item = T>,
+{
+    reducer: &'f ReduceCallback<'f, OP, ID>,
+    producer: P,
+    output: T,
 }
 
-pub fn main() {
-    // try_other_adapt()
-}
-pub fn test() {
-    let a: Vec<u32> = (0..100_000_000).into_iter().collect();
-
-    type Predicate = (dyn Fn(&&u32) -> bool + Sync + Send);
-    let predicate: &Predicate = &|&&x| x % 2 == 0;
-
-    let pool = adaptive_algorithms::rayon::get_thread_pool();
-    let result;
-    #[cfg(feature = "logs")]
-    {
-        let (res, log) = pool.logging_install(|| filter(&a, &predicate));
-        result = res;
-        log.save_svg("log.svg").unwrap();
+impl<'f, T, OP, ID, P> Task for Reduce<'f, T, OP, ID, P>
+where
+    T: Send,
+    OP: Fn(T, T) -> T + Sync + Send,
+    ID: Fn() -> T + Send + Sync,
+    P: AdaptiveProducer<Item = T>,
+{
+    fn is_finished(&self) -> bool {
+        // TODO: This is not really correct, maybe use upper bound?
+        // self.producer.size_hint().0 == 0;
+        self.producer.completed()
     }
-    #[cfg(not(feature = "logs"))]
-    {
-        result = pool.install(|| filter(&a, &predicate));
-    }
-    assert_eq!(result.len(), 50_000_000);
-    assert!(result.iter().all(|&&x| x % 2 == 0));
-
-    #[cfg(feature = "statistics")]
-    adaptive_algorithms::task::print_statistics();
-}
-
-struct Filter<'a, T: Sync + Send, P: Send + Sync>
-where
-    P: Fn(&&T) -> bool,
-{
-    data: &'a [T],
-    result: Vec<&'a T>,
-    predicate: &'a P,
-    successors: std::collections::LinkedList<Vec<&'a T>>,
-}
-
-pub fn filter<'a, T: Sync + Send, P: Send + Sync + 'a>(
-    input: &'a [T],
-    predicate: &'a P,
-) -> Vec<&'a T>
-where
-    P: Fn(&&T) -> bool,
-{
-    let mut x = Filter {
-        data: input,
-        predicate,
-        result: Vec::with_capacity(input.len()),
-        successors: LinkedList::new(),
-    };
-    x.run();
-
-    let vec = std::mem::replace(&mut x.result, vec![]);
-    x.successors.push_front(vec);
-    x.successors.iter().flatten().copied().collect::<Vec<&T>>()
-    // return x.result;
-}
-
-impl<'a, T: Send + Sync, P: Send + Sync> Task for Filter<'a, T, P>
-where
-    P: Fn(&&T) -> bool,
-{
     fn step(&mut self) {
-        let cut = 4096.min(self.data.len());
-        let left = cut_off_left(&mut self.data, cut);
-
-        // let result = left.iter().filter(self.predicate).collect::<Vec<&T>>();
-        for e in left {
-            if (self.predicate)(&e) {
-                self.result.push(e);
-            }
-        }
+        let id = self.reducer.identity;
+        let mut id = id();
+        std::mem::swap(&mut id, &mut self.output);
+        self.output = self.producer.partial_fold(id, self.reducer.op, 4096);
+    }
+    fn fuse(&mut self, other: &mut Self) {
+        // this is ugly, but I don't really know how do to that otherwise without copy
+        let mut id = (self.reducer.identity)();
+        mem::swap(&mut id, &mut self.output);
+        let mut other_id = (other.reducer.identity)();
+        mem::swap(&mut other_id, &mut other.output);
+        self.output = (self.reducer.op)(id, other_id);
     }
     fn can_split(&self) -> bool {
-        self.data.len() > 1024
+        // println!("Hint: {:?}", self.producer.size_hint());
+        // self.producer.size_hint().0 > 4096
+        true
     }
-    fn is_finished(&self) -> bool {
-        self.data.is_empty()
-    }
-    fn split(&mut self, mut runner: impl FnMut(&mut Vec<&mut Self>), steal_counter: usize) {
-        let mid = self.data.len() / 2;
-        let right = cut_off_right(&mut self.data, mid);
-        let mut other = Filter {
-            data: right,
-            result: Vec::new(),
-            predicate: self.predicate,
-            successors: LinkedList::new(),
+    fn split(&mut self, mut runner: impl FnMut(&mut Vec<&mut Self>), _steal_counter: usize) {
+        // println!("Split");
+        let other_producer =
+            replace_with::replace_with_or_abort_and_return(&mut self.producer, |p| p.divide());
+        let id = (self.reducer.identity)();
+        let mut other = Self {
+            reducer: self.reducer,
+            producer: other_producer,
+            output: id,
         };
         runner(&mut vec![self, &mut other]);
     }
-    fn fuse(&mut self, other: &mut Self) {
-        // adaptive_algorithms::rayon::subgraph("Fusing", other.result.len(), || {
-        // self.result.append(&mut other.result)
-        // });
-        let vec = std::mem::replace(&mut other.result, vec![]);
-        self.successors.push_back(vec);
-        self.successors.append(&mut other.successors);
+}
+// That might make it simple to convert to my Adaptive algorithm
+// impl<P, I> From<P> for Adaptive<I>
+// where
+//     I: ParallelIterator + Sized,
+//     P: rayon_try_fold::prelude::ParallelIterator<
+//         Item = I::Item, Controlled = I::Controlled, Enumerable = I::Enumerable> + Sized
+// {
+//     // type Controlled = I::Controlled;
+//     // type Enumerable = I::Enumerable;
+//     // type Item = I::Item;
+//     fn from(item: P) -> Self {
+//         // Number { value: item }
+//         unimplemented!()
+//     }
+// }
+// that works but makes it rather annoying to use
+pub fn mk_adaptive<P>(iterator: P) -> Adaptive<P>
+where
+    P: rayon_try_fold::prelude::ParallelIterator,
+{
+    Adaptive { base: iterator }
+}
+
+pub(crate) trait AdaptiveProducer: Producer {
+    fn completed(&self) -> bool;
+    fn partial_fold<B, F>(&mut self, init: B, fold_op: F, limit: usize) -> B
+    where
+        B: Send,
+        F: Fn(B, Self::Item) -> B;
+}
+
+/*
+pub(crate) fn block_sizes() -> impl Iterator<Item = usize> {
+    // TODO: cap
+    std::iter::successors(Some(1), |old: &usize| {
+        old.checked_shl(1).or(Some(std::usize::MAX))
+    })
+}
+*/
+
+pub struct Adaptive<I> {
+    pub(crate) base: I,
+}
+
+//TODO: is this always the same ?
+struct ReduceCallback<'f, OP, ID> {
+    op: &'f OP,
+    identity: &'f ID,
+}
+
+impl<'f, T, OP, ID> ProducerCallback<T> for ReduceCallback<'f, OP, ID>
+where
+    T: Send,
+    OP: Fn(T, T) -> T + Sync + Send,
+    ID: Fn() -> T + Send + Sync,
+{
+    type Output = T;
+    fn call<P>(self, producer: P) -> Self::Output
+    where
+        P: Producer<Item = T>,
+    {
+        let blocked_producer = Blocked::new(producer);
+        let output = (self.identity)();
+        adaptive_scheduler(&self, blocked_producer, output)
     }
-    fn work(&self) -> Option<(&'static str, usize)> {
-        Some(("Filtering", self.data.len()))
+}
+
+//TODO: should we really pass the reduce refs by refs ?
+fn adaptive_scheduler<'f, T, OP, ID, P>(
+    reducer: &ReduceCallback<'f, OP, ID>,
+    producer: P,
+    output: T, // What's that for?
+) -> T
+where
+    T: Send,
+    OP: Fn(T, T) -> T + Sync + Send,
+    ID: Fn() -> T + Send + Sync,
+    P: AdaptiveProducer<Item = T>,
+{
+    // println!("Running");
+    let mut r = Reduce {
+        reducer,
+        producer,
+        output: (reducer.identity)(),
+    };
+    r.run();
+
+    r.output
+}
+
+impl<I> ParallelIterator for Adaptive<I>
+where
+    I: ParallelIterator,
+{
+    type Controlled = I::Controlled;
+    type Enumerable = I::Enumerable;
+    type Item = I::Item;
+    //TODO: why isnt this the default function ?
+    //ANSWER: Maybe you could add an associated type ReduceCallback which has to implement
+    //ProducerCallback, and then use this type in the default implementation of the reduce?
+    //Oh, you can't because there is no default associated type
+    fn reduce<OP, ID>(self, identity: ID, op: OP) -> Self::Item
+    where
+        OP: Fn(Self::Item, Self::Item) -> Self::Item + Sync + Send,
+        ID: Fn() -> Self::Item + Sync + Send,
+    {
+        let reduce_cb = ReduceCallback {
+            op: &op,
+            identity: &identity,
+        };
+        self.with_producer(reduce_cb)
+    }
+    fn with_producer<CB>(self, callback: CB) -> CB::Output
+    where
+        CB: ProducerCallback<Self::Item>,
+    {
+        self.base.with_producer(callback)
+    }
+    fn for_each<OP>(self, op: OP)
+    where
+        OP: Fn(Self::Item) + Sync + Send,
+    {
+        self.map(op).adaptive().reduce(|| (), |_, _| ())
     }
 }
-pub fn cut_off_left<'a, T>(s: &mut &'a [T], mid: usize) -> &'a [T] {
-    let tmp: &'a [T] = ::std::mem::replace(&mut *s, &mut []);
-    let (left, right) = tmp.split_at(mid);
-    *s = right;
-    left
+
+// TODO: do I need that?
+/*
+struct Worker<'f, S, C, D, W, SD> {
+    state: S,
+    completed: &'f C,
+    divide: &'f D,
+    should_divide: &'f SD,
+    work: &'f W,
 }
-pub fn cut_off_right<'a, T>(s: &mut &'a [T], mid: usize) -> &'a [T] {
-    let tmp: &'a [T] = ::std::mem::replace(&mut *s, &mut []);
-    let (left, right) = tmp.split_at(mid);
-    *s = left;
-    right
+
+impl<'f, S, C, D, W, SD> Iterator for Worker<'f, S, C, D, W, SD>
+where
+    W: Fn(&mut S, usize) + Sync,
+    C: Fn(&S) -> bool + Sync,
+{
+    type Item = ();
+            x
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
+    fn fold<B, F>(mut self, init: B, _f: F) -> B
+    where
+        F: FnMut(B, Self::Item) -> B,
+    {
+        (self.work)(&mut self.state, std::usize::MAX);
+        init
+    }
 }
+
+impl<'f, S, C, D, W, SD> Divisible for Worker<'f, S, C, D, W, SD>
+where
+    S: Send,
+    C: Fn(&S) -> bool + Sync,
+    D: Fn(S) -> (S, S) + Sync,
+    W: Fn(&mut S, usize) + Sync,
+    SD: Fn(&S) -> bool + Sync,
+{
+    type Controlled = False;
+    fn should_be_divided(&self) -> bool {
+        (self.should_divide)(&self.state)
+    }
+    fn divide(self) -> (Self, Self) {
+        let (left, right) = (self.divide)(self.state);
+        (
+            Worker {
+                state: left,
+                completed: self.completed,
+                divide: self.divide,
+                should_divide: self.should_divide,
+                work: self.work,
+            },
+            Worker {
+                state: right,
+                completed: self.completed,
+                should_divide: self.should_divide,
+                divide: self.divide,
+                work: self.work,
+            },
+        )
+    }
+    fn divide_at(self, _index: usize) -> (Self, Self) {
+        panic!("should never be called")
+    }
+}
+
+impl<'f, S, C, D, W, SD> Producer for Worker<'f, S, C, D, W, SD>
+where
+    S: Send,
+    C: Fn(&S) -> bool + Sync,
+    D: Fn(S) -> (S, S) + Sync,
+    W: Fn(&mut S, usize) + Sync,
+    SD: Fn(&S) -> bool + Sync,
+{
+    fn preview(&self, _index: usize) -> Self::Item {
+        panic!("you cannot preview a Worker")
+    }
+}
+
+impl<'f, S, C, D, W, SD> AdaptiveProducer for Worker<'f, S, C, D, W, SD>
+where
+    S: Send,
+    C: Fn(&S) -> bool + Sync,
+    D: Fn(S) -> (S, S) + Sync,
+    W: Fn(&mut S, usize) + Sync,
+    SD: Fn(&S) -> bool + Sync,
+{
+    fn completed(&self) -> bool {
+        (self.completed)(&self.state)
+    }
+    fn partial_fold<B, F>(&mut self, init: B, _fold_op: F, limit: usize) -> B
+    where
+        B: Send,
+        F: Fn(B, Self::Item) -> B,
+    {
+        (self.work)(&mut self.state, limit);
+        init
+    }
+}
+
+pub fn work<S, C, D, W, SD>(init: S, completed: C, divide: D, work: W, should_be_divided: SD)
+where
+    S: Send,
+    C: Fn(&S) -> bool + Sync,
+    D: Fn(S) -> (S, S) + Sync,
+    W: Fn(&mut S, usize) + Sync,
+    SD: Fn(&S) -> bool + Sync,
+{
+    let worker = Worker {
+        state: init,
+        completed: &completed,
+        divide: &divide,
+        work: &work,
+        should_divide: &should_be_divided,
+    };
+    let identity = || ();
+    let op = |_, _| ();
+    let reducer = ReduceCallback {
+        op: &op,
+        identity: &identity,
+    };
+    adaptive_scheduler(&reducer, worker, ());
+}
+*/

@@ -3,12 +3,9 @@ extern crate criterion;
 extern crate rayon;
 extern crate rayon_adaptive;
 
-use adaptive_iterator::filter;
-use num::iter::Range;
-use num::traits::ToPrimitive;
-use num::Integer;
-use num::Num;
+// use num::iter::Range;
 use rayon_adaptive::prelude::*;
+use std::ops::Range;
 
 use criterion::Criterion;
 
@@ -18,19 +15,14 @@ pub struct RayonFilter<'a, T: Sync + Send> {
 }
 use adaptive_algorithms::adaptive_bench::{TestConfig, Tester};
 use adaptive_algorithms::Benchable;
-impl<'a, T: Sync + Send> Benchable<'a, T> for RayonFilter<'a, T>
-where
-    T: Integer + Default + Clone + ToPrimitive,
-{
-    fn start(&mut self) -> Option<T> {
+impl<'a> Benchable<'a, usize> for RayonFilter<'a, usize> {
+    fn start(&mut self) -> Option<usize> {
         use rayon::prelude::*;
-        let sum = self
-            .data
-            .into_iter()
-            .par_iter()
+        let data = self.data.clone();
+        let sum = data
+            .into_par_iter()
             .filter(self.predicate)
-            // .cloned()
-            .reduce(|| T::default(), |a: T, b: T| a + b);
+            .reduce(|| 0, |a, b| a + b);
         Some(sum)
     }
     fn name(&self) -> &'static str {
@@ -42,16 +34,12 @@ pub struct IteratorFilter<'a, T: Sync + Send> {
     data: Range<T>,
     predicate: &'a (dyn Fn(&T) -> bool + Send + Sync),
 }
-impl<'a, T: Sync + Send> Benchable<'a, T> for IteratorFilter<'a, T>
-where
-    T: Integer + Default + Clone + ToPrimitive,
-{
-    fn start(&mut self) -> Option<T> {
-        let sum = self
-            .data
+impl<'a> Benchable<'a, usize> for IteratorFilter<'a, usize> {
+    fn start(&mut self) -> Option<usize> {
+        let data = self.data.clone();
+        let sum = data
             .into_iter()
             .filter(self.predicate)
-            // .cloned()
             .fold(Default::default(), |a, b| a + b);
         Some(sum)
     }
@@ -60,19 +48,16 @@ where
     }
 }
 pub struct AdaptiveFilter<'a, T: Sync + Send> {
-    data: &'a [T],
-    predicate: &'a (dyn Fn(&&T) -> bool + Send + Sync),
+    data: Range<T>,
+    predicate: &'a (dyn Fn(&T) -> bool + Send + Sync),
 }
-impl<'a, T: Sync + Send> Benchable<'a, T> for AdaptiveFilter<'a, T>
-where
-    T: Num + Default + Clone, /* why? */
-{
-    fn start(&mut self) -> Option<T> {
-        let sum = self
-            .data
+impl<'a> Benchable<'a, usize> for AdaptiveFilter<'a, usize> {
+    fn start(&mut self) -> Option<usize> {
+        let data = self.data.clone();
+        let sum = data
             .into_adapt_iter()
             .filter(self.predicate)
-            .cloned()
+            // .cloned()
             .fold(Default::default, |a, b| a + b)
             .reduce(|a, b| a + b);
 
@@ -82,98 +67,53 @@ where
         "rayon-adaptive filter"
     }
 }
-// pub struct MyAdaptiveFilter<'a, T: Sync + Send, P: Send + Sync + 'a>
-// where
-//     P: Fn(&&T) -> bool,
-// {
-//     data: Range<T>,
-//     predicate: &'a P,
-// }
-// impl<'a, T: Sync + Send, P: Send + Sync> Benchable<'a, T> for MyAdaptiveFilter<'a, T, P>
-// where
-//     P: Fn(&&T) -> bool,
-//     T: Num + Clone + Default,
-// {
-//     fn start(&mut self) -> Option<T> {
-//         let res: Vec<&T> = filter(self.data, self.predicate);
-//         let sum = res.iter().cloned().fold(T::default(), |a, b| a + b.clone());
-//         Some(sum)
-//     }
-//     fn name(&self) -> &'static str {
-//         "My Adaptive Version"
-//     }
-// }
-pub struct TryFoldFilter<'a, T: Sync + Send, P: Send + Sync + 'a>
-where
-    P: Fn(&&T) -> bool,
-{
-    data: &'a [T],
-    predicate: &'a P,
+
+pub struct TryFoldFilter<'a, T: Sync + Send> {
+    data: Range<usize>,
+    predicate: &'a (dyn Fn(&T) -> bool + Send + Sync),
 }
-impl<'a, T: Sync + Send, P: Send + Sync> Benchable<'a, T> for TryFoldFilter<'a, T, P>
-where
-    P: Fn(&&T) -> bool,
-    T: Num + Default + Clone,
-{
-    fn start(&mut self) -> Option<T> {
+impl<'a> Benchable<'a, usize> for TryFoldFilter<'a, usize> {
+    fn start(&mut self) -> Option<usize> {
         use rayon_try_fold::prelude::*;
-        let result = self
-            .data
+        let data = self.data.clone();
+        let result = data
             .into_par_iter()
             .adaptive()
             .filter(self.predicate)
-            .map(|x| x.clone())
             .rayon(2)
-            .reduce(|| T::default(), |a, b| a + b);
+            .reduce(|| 0, |a, b| a + b);
         Some(result)
     }
     fn name(&self) -> &'static str {
         "rayon_try_fold"
     }
 }
-pub struct MyNewAdaptive<'a, T: Sync + Send, P: Send + Sync + 'a>
-where
-    P: Fn(&&T) -> bool,
-{
-    data: &'a [T],
-    predicate: &'a P,
+pub struct MyNewAdaptive<'a, T: Sync + Send> {
+    data: Range<usize>,
+    predicate: &'a (dyn Fn(&T) -> bool + Send + Sync),
 }
-impl<'a, T: Sync + Send, P: Send + Sync> Benchable<'a, T> for MyNewAdaptive<'a, T, P>
-where
-    P: Fn(&&T) -> bool,
-    T: Num + Default + Clone,
-{
-    fn start(&mut self) -> Option<T> {
-        use adaptive_iterator::adaptive::mk_adaptive;
+impl<'a> Benchable<'a, usize> for MyNewAdaptive<'a, usize> {
+    fn start(&mut self) -> Option<usize> {
+        use adaptive_iterator::mk_adaptive;
         use rayon_try_fold::prelude::*;
-        let iter = self
-            .data
-            .into_par_iter()
-            .filter(self.predicate)
-            .adaptive()
-            .map(|x| x.clone());
-        mk_adaptive(iter).reduce(|| T::default(), |a, b| a + b);
+        let data = self.data.clone();
+        let iter = data.into_par_iter().filter(self.predicate).adaptive();
+        mk_adaptive(iter).reduce(|| 0, |a, b| a + b);
         None
     }
     fn name(&self) -> &'static str {
         "New with adaptive fold"
     }
 }
-pub struct LoopFilter<'a, T: Sync + Send, P: Send + Sync + 'a>
-where
-    P: Fn(&&T) -> bool,
-{
-    data: &'a [T],
-    predicate: &'a P,
+pub struct LoopFilter<'a, T: Sync + Send> {
+    data: Range<T>,
+    predicate: &'a (dyn Fn(&T) -> bool + Send + Sync),
 }
-impl<'a, T: Sync + Send, P: Send + Sync> Benchable<'a, T> for LoopFilter<'a, T, P>
-where
-    P: Fn(&&T) -> bool,
-    T: Num + Default + Clone,
-{
-    fn start(&mut self) -> Option<T> {
-        let mut sum: T = Default::default();
-        for i in self.data {
+impl<'a> Benchable<'a, usize> for LoopFilter<'a, usize> {
+    fn start(&mut self) -> Option<usize> {
+        let mut sum: usize = 0;
+        let data = self.data.clone();
+        for i in data {
             if (self.predicate)(&i) {
                 sum = sum + i.clone();
             }
@@ -185,8 +125,8 @@ where
     }
 }
 // can also be used
-fn is_prime(n: u32) -> bool {
-    for a in 2..(n as f64).sqrt() as u32 {
+fn is_prime(n: usize) -> bool {
+    for a in 2..(n as f64).sqrt() as usize {
         if n % a == 0 {
             return false;
         }
@@ -194,11 +134,12 @@ fn is_prime(n: u32) -> bool {
     true
 }
 
-type Predicate = (dyn Fn(&&u32) -> bool + Sync + Send);
+type Predicate = (dyn Fn(&usize) -> bool + Sync + Send);
 fn bench(c: &mut Criterion) {
-    let data: std::ops::Range<u32> = 0..10_000_000;
+    let data: std::ops::Range<usize> = 0..50_000_000;
+    let len = data.end;
     let mut group = c.benchmark_group("Filter");
-    let predicate: &Predicate = criterion::black_box(&|&&x| x % 2 == 0);
+    let predicate: &Predicate = criterion::black_box(&|&x| x % 2 == 0);
     // let predicate: &Predicate = &|&&x| is_prime(x);
     group.warm_up_time(std::time::Duration::new(1, 0));
     group.measurement_time(std::time::Duration::new(3, 0));
@@ -210,45 +151,51 @@ fn bench(c: &mut Criterion) {
         .cloned()
         .collect();
 
-    let mut test: Vec<TestConfig<u32>> = vec![];
+    let mut test: Vec<TestConfig<usize>> = vec![];
     let predicate = &predicate;
     for i in &cpus {
-        for s in vec![6, 8] {
+        for s in vec![0, 6, 8] {
             let t = TestConfig::new(
-                data.len(),
+                len,
                 *i,
                 Some(s),
-                MyAdaptiveFilter { data, predicate },
+                MyNewAdaptive {
+                    data: data.clone(),
+                    predicate,
+                },
             );
             test.push(t);
-            let t = TestConfig::new(data.len(), *i, Some(s), MyNewAdaptive { data, predicate });
-            test.push(t);
         }
-        let f = AdaptiveFilter { data, predicate };
-        test.push(TestConfig::new(data.len(), *i, None, f));
-        test.push(TestConfig::new(
-            data.len(),
-            *i,
-            None,
-            TryFoldFilter { data, predicate },
-        ));
+        let f = AdaptiveFilter {
+            data: data.clone(),
+            predicate,
+        };
+        test.push(TestConfig::new(len, *i, None, f));
+        let f = TryFoldFilter {
+            data: data.clone(),
+            predicate,
+        };
+        test.push(TestConfig::new(len, *i, None, f));
 
-        let t = TestConfig::new(data.len(), *i, None, RayonFilter { data, predicate });
-        test.push(t);
+        let f = RayonFilter {
+            data: data.clone(),
+            predicate,
+        };
+        test.push(TestConfig::new(len, *i, None, f));
     }
     let r = LoopFilter {
-        data,
-        predicate: &predicate,
+        data: data.clone(),
+        predicate,
     };
 
-    let t = TestConfig::new(data.len(), 1, None, r);
+    let t = TestConfig::new(len, 1, None, r);
     test.push(t);
     let r = IteratorFilter {
-        data,
-        predicate: &predicate,
+        data: data.clone(),
+        predicate,
     };
 
-    let t = TestConfig::new(data.len(), 1, None, r);
+    let t = TestConfig::new(len, 1, None, r);
     test.push(t);
 
     // r.start();

@@ -1,5 +1,5 @@
 //! Sequential iterator you can eat by blocks if you try_fold.
-use crate::adaptive::AdaptiveProducer;
+use crate::AdaptiveProducer;
 
 use rayon_try_fold::prelude::*;
 /// Sequential iterator you can eat in several bites.
